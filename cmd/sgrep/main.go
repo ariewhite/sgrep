@@ -21,7 +21,8 @@ var(
 	found bool = false
 )
 
-func parseFile(filePath string, pattern string){
+// TODO: remove fileNaming param
+func parseFile(filePath string, pattern string, fileNaming bool){
 	file, err := os.Open(filePath)
 	if err != nil {
 		log.Fatal(err);
@@ -41,13 +42,25 @@ func parseFile(filePath string, pattern string){
 		before := scanner.Text()[:index];
 		found  := scanner.Text()[index : index+len(pattern)]
 		other  := scanner.Text()[(index + len(pattern)):];
+		if fileNaming {
+			
+			fmt.Printf("%s%s%s:%d%s  %s%s%s%s%s\n", Green, filePath, Red, line, Reset, before, Yellow, found, Reset, other);
+		} else {
+			fmt.Printf("%d  %s%s%s%s%s\n", line, before, Yellow, found, Reset, other);
+		}
 
-		fmt.Printf("%d  %s%s%s%s%s\n", line, before, Yellow, found, Reset, other);
 		line++;
 	}
 
 	if err := scanner.Err(); err != nil {
 		fmt.Println("Error");
+	}
+}
+
+func parseMultiFiles(filesCount int, pattern string) {
+	for i := 2; i <= filesCount+1; i++  {
+		// get file path
+		parseFile(os.Args[i], pattern, true)
 	}
 }
 
@@ -78,28 +91,41 @@ func handleBasicPattern(line string, pattern string, lineNum int){
 	fmt.Printf("%d  %s\n", lineNum, res);
 }
 
-
-// .\sgrep some -f=test.txt
+// BASIC USAGE
+// sgrep <pattern> -f=<path/to/file>
+// sgrep <pattern> file1.txt file2.txt
+// <stdin> | sgrep <pattern>
 func main(){
-	// check for flags
-	filePtr := flag.String("f", "", "parse file")
+ 	// check for single file mode
+	filePtr := flag.String("f", "", "Parse file instead stdin");
+	// lineNumberPtr := flag.Bool("n", false, "Print line number");
+	
 	flag.Parse()
+	
+	nFlags := flag.NArg()
 
-	if flag.NArg() < 1 {
+	// check for pattern exist
+	if nFlags < 1 {
 		fmt.Fprintln(os.Stderr, "no pattern")
 		os.Exit(2)
 	}
-	// check for pattern
+
+	// get pattern
 	pattern := flag.Arg(0)
 
 	fmt.Printf("pattern: %s\nfile: %s\n", pattern, *filePtr)
 
 	var input *os.File
 	if *filePtr != "" {
-		parseFile(*filePtr, pattern)
+		parseFile(*filePtr, pattern, false)
+	} else if nFlags > 2 {
+		parseMultiFiles(nFlags-1, pattern)
 	} else {
 		input = os.Stdin
 	}
+	
+
+	// stdin (nofiles) mode
 
 	lineNumber := 1
 	found = false

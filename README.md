@@ -15,15 +15,15 @@
 
 ## Phase 2 — Input handling
 
-- [ ] Support `-f <file>`
-- [ ] Automatically read from stdin when no file is provided
-- [ ] Support multiple files:
+- [*] Support `-f <file>`
+- [*] Automatically read from stdin when no file is provided
+- [*] Support multiple files:
 
 ```sh
 sgrep pattern file1.txt file2.txt
 ```
 
-- [ ] Print filename before the line (like `grep`)
+- [*] Print filename before the line (like `grep`)
 
 ## Phase 3 — Search features
 
