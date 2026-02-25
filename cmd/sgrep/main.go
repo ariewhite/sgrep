@@ -17,6 +17,9 @@ const(
 	Yellow = "\033[33m"
 	Blue   = "\033[34m"
 )
+var(
+	found bool = false
+)
 
 func parseFile(filePath string, pattern string){
 	file, err := os.Open(filePath)
@@ -64,15 +67,14 @@ func findAllSubs(str, substr string) []int {
 }
 
 func handleBasicPattern(line string, pattern string, lineNum int){
-	index := strings.Index(line, pattern)
-	if index == -1 {
+	if strings.Contains(line, pattern) {
 		return;
 	}
 
+	found = true
+
 	sample := Yellow + pattern + Reset
-
 	res := strings.ReplaceAll(line, pattern, sample)
-
 	fmt.Printf("%d  %s\n", lineNum, res);
 }
 
@@ -83,24 +85,44 @@ func main(){
 	filePtr := flag.String("f", "", "parse file")
 	flag.Parse()
 
-	// check for pattern
-	args := flag.Args()
-	if len(args) < 1 {
-		fmt.Println("Error: no pattern");
-		os.Exit(1)
+	if flag.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "no pattern")
+		os.Exit(2)
 	}
-	pattern := args[0]
+	// check for pattern
+	pattern := flag.Arg(0)
 
-	fmt.Printf("%s\n", *filePtr);
-	// fmt.Printf("pattern: %s\n\n", pattern);
+	fmt.Printf("pattern: %s\nfile: %s\n", pattern, *filePtr)
+
+	var input *os.File
+	if *filePtr != "" {
+		parseFile(*filePtr, pattern)
+	} else {
+		input = os.Stdin
+	}
 
 	lineNumber := 1
-	scanner := bufio.NewScanner(os.Stdin)
+	found = false
+
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	
 	for scanner.Scan() {
 		line := scanner.Text()
-		handleBasicPattern(line, pattern, lineNumber)
+
+		if (strings.Contains(line, pattern)) {
+			found = true
+			highlighted := strings.ReplaceAll(line, pattern, Yellow + pattern + Reset)
+			fmt.Printf("%d  %s\n", lineNumber, highlighted)
+		}
 		lineNumber++;
 	}
 
-	os.Exit(0)
+	// exit code
+	exitCode := 0
+	if !found {
+		exitCode = 1
+	}
+
+	os.Exit(exitCode)
 }
