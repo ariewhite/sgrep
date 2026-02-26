@@ -17,9 +17,82 @@ const(
 	Yellow = "\033[33m"
 	Blue   = "\033[34m"
 )
+
 var(
-	found bool = false
+	found = false
 )
+
+type Match struct{
+	lineNumber int
+	line string
+	pattern string
+	filePath string
+}
+
+type Options struct{
+	showLineNum  bool
+	showFileName bool
+	onlyMatched  bool
+	invertMatch  bool
+}
+
+func (o *Options) print(m Match) string {
+	var sb strings.Builder
+	if o.showFileName {
+		sb.WriteString(colorize(m.filePath, Green) + colorize(":", Blue))
+	}
+	if o.showLineNum {
+		sb.WriteString(Green + fmt.Sprintf("%d", m.lineNumber) + Reset + ":");
+	}
+	if o.onlyMatched {
+		sb.WriteString(colorize(m.pattern, Yellow))
+	} else {
+		m.line = strings.ReplaceAll(m.line, m.pattern, Yellow + m.pattern + Reset)
+		sb.WriteString(m.line)
+	}
+
+	return sb.String()
+}
+
+
+func colorize(original string, color string) string {
+	return color + original + Reset;
+}
+
+//
+func search(io *os.File, pattern string, filePath string, invert bool, match func(m Match)) error {
+	scanner := bufio.NewScanner(io)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	lineNum := 1 
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		contain := strings.Contains(line, pattern)
+
+		if invert {
+			if !contain {
+				match(Match{
+					lineNumber: lineNum,
+					line: line,
+					pattern: pattern,
+					filePath: filePath,
+				})
+			}
+		} else {
+			if contain {
+				match(Match{
+					lineNumber: lineNum,
+					line: line,
+					pattern: pattern,
+					filePath: filePath,
+				})
+			}
+		}
+
+		lineNum++
+	}
+	return scanner.Err(); 
+}
 
 // TODO: remove fileNaming param
 func parseFile(filePath string, pattern string, fileNaming bool){
@@ -57,10 +130,10 @@ func parseFile(filePath string, pattern string, fileNaming bool){
 	}
 }
 
-func parseMultiFiles(filesCount int, pattern string) {
+func parseMultiFiles(filesCount int, pattern string, printLN bool) {
 	for i := 2; i <= filesCount+1; i++  {
 		// get file path
-		parseFile(os.Args[i], pattern, true)
+		parseFile(os.Args[i], pattern, printLN)
 	}
 }
 
@@ -98,57 +171,76 @@ func handleBasicPattern(line string, pattern string, lineNum int){
 func main(){
  	// check for single file mode
 	filePtr := flag.String("f", "", "Parse file instead stdin");
-	// lineNumberPtr := flag.Bool("n", false, "Print line number");
+	lineNumberOut 	:= flag.Bool("n", false, "Print line number");
+	fileNameOnly  	:= flag.Bool("l", false, "Print only file name");
+	invertOut       := flag.Bool("v", false, "Invert output");
+	onlyMatchedOut  := flag.Bool("m", false, "Print only matched out");
 	
 	flag.Parse()
-	
-	nFlags := flag.NArg()
 
 	// check for pattern exist
-	if nFlags < 1 {
+	if flag.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "no pattern")
 		os.Exit(2)
 	}
-
 	// get pattern
 	pattern := flag.Arg(0)
+	files := flag.Args()[1:]
 
 	fmt.Printf("pattern: %s\nfile: %s\n", pattern, *filePtr)
 
-	var input *os.File
-	if *filePtr != "" {
-		parseFile(*filePtr, pattern, false)
-	} else if nFlags > 2 {
-		parseMultiFiles(nFlags-1, pattern)
-	} else {
-		input = os.Stdin
+	options := &Options{
+		showLineNum: *lineNumberOut,
+		showFileName: flag.NArg() > 2,	
+		onlyMatched: *onlyMatchedOut,
+		invertMatch: *invertOut,
 	}
-	
 
-	// stdin (nofiles) mode
+	if *fileNameOnly {
+		fmt.Fprintf(os.Stderr, "add feature in future\n")
+		os.Exit(0)
+	}
 
-	lineNumber := 1
-	found = false
+	onMatch := func(x Match) {
+		found = true
+		fmt.Printf(options.print(x) + "\n")
+	}
 
-	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 1024), 1024*1024)
-	
-	for scanner.Scan() {
-		line := scanner.Text()
+	// selecting mode
+	if len(files) > 0 {
+		for _, path := range files {
+			// open file
+			f, err := os.Open(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", path, err)
+				continue
+			}
 
-		if (strings.Contains(line, pattern)) {
-			found = true
-			highlighted := strings.ReplaceAll(line, pattern, Yellow + pattern + Reset)
-			fmt.Printf("%d  %s\n", lineNumber, highlighted)
+			if err := search(f, pattern, path, *invertOut, onMatch); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", path, err)
+			}
+			f.Close()
 		}
-		lineNumber++;
+	} else if *filePtr != "" { // -f singe file mode
+		f, err := os.Open(*filePtr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", err, *filePtr)
+			os.Exit(2)
+		} 
+		defer f.Close()
+
+		if err := search(f, pattern, *filePtr, *invertOut, onMatch); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)	
+		}
+	} else {                  // stdin
+		if err := search(os.Stdin, pattern, *filePtr, *invertOut, onMatch); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
 	}
 
-	// exit code
-	exitCode := 0
 	if !found {
-		exitCode = 1
+		os.Exit(1)
 	}
 
-	os.Exit(exitCode)
+	os.Exit(0)
 }

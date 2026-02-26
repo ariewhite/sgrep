@@ -28,12 +28,12 @@ sgrep pattern file1.txt file2.txt
 ## Phase 3 — Search features
 
 - [ ] Support regular expressions
-- [ ] Flag `-v` (invert match)
-- [ ] Flag `-i` (ignore case)
-- [ ] Flag `-c` (count matches)
+- [*] Flag `-v` (invert match)
+- [*] Flag `-i` (ignore case)
+- [*] Flag `-c` (count matches)
 - [ ] Flag `-l` (print only file names)
-- [ ] Flag `-w` (match whole word)
-- [ ] Flag `-o` (print only matched part)
+- [*] Flag `-w` (match whole word)
+- [*] Flag `-o` (print only matched part)
 
 ## Phase 4 — Output improvements
 
