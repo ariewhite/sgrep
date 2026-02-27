@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strings"
+	"regexp"
 )
 
 
@@ -22,11 +22,19 @@ var(
 	found = false
 )
 
+// interface to matches
+type Matcher interface {
+	findIndex(line string) (stary, end int)
+	Match(line string) bool
+}
+
 type Match struct{
 	lineNumber int
 	line string
 	pattern string
 	filePath string
+	matchStart int
+	matchEnd int
 }
 
 type Options struct{
@@ -34,6 +42,61 @@ type Options struct{
 	showFileName bool
 	onlyMatched  bool
 	invertMatch  bool
+}
+
+// -------------- string -------------------
+type StringMatcher struct {
+	pattern string
+	ignoreCase bool
+}
+
+func (s *StringMatcher) Match(line string) bool {
+	if s.ignoreCase {
+		return strings.Contains(strings.ToLower(line), strings.ToLower(s.pattern))
+	}
+	return strings.Contains(line, s.pattern)
+}
+
+func (s *StringMatcher) findIndex(line string) (int, int) {
+	index := strings.Index(line, s.pattern)
+	if index == -1 {
+		return -1, -1
+	}
+	return index, index + len(s.pattern)
+}
+
+// -------------- regex ------------------
+type RegexMatcher struct {
+	pattern string 
+	re *regexp.Regexp
+}
+
+func (s *RegexMatcher) Match(line string) bool{
+	return s.re.MatchString(line)
+}
+
+func (s *RegexMatcher) findIndex(line string) (int, int) {
+	l := s.re.FindStringIndex(line)
+	if l == nil {
+		return -1, -1
+	} 
+	return l[0], l[1]
+}
+
+
+// -------------- matcher select -----------------
+func newMatcher(pattern string, reg bool, ignoreCase bool) (Matcher, error) {
+	if reg {
+		if ignoreCase {
+			pattern = "(?i)" + pattern;
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid regex %w", err)
+		}
+		return &RegexMatcher{re: re}, nil
+	}
+	return &StringMatcher{pattern: pattern, ignoreCase: ignoreCase}, nil
 }
 
 func (o *Options) print(m Match) string {
@@ -47,121 +110,46 @@ func (o *Options) print(m Match) string {
 	if o.onlyMatched {
 		sb.WriteString(colorize(m.pattern, Yellow))
 	} else {
-		m.line = strings.ReplaceAll(m.line, m.pattern, Yellow + m.pattern + Reset)
-		sb.WriteString(m.line)
+		sb.WriteString(highlight(m, Yellow))
 	}
 
 	return sb.String()
 }
 
+func highlight(m Match, color string) string {
+	if m.matchStart == -1{
+		return m.line
+	}
+	return m.line[:m.matchStart] + color + m.line[m.matchStart:m.matchEnd] + Reset + m.line[:m.matchEnd];
+}
 
 func colorize(original string, color string) string {
 	return color + original + Reset;
 }
 
-//
-func search(io *os.File, pattern string, filePath string, invert bool, match func(m Match)) error {
+//main searcher
+func search(io *os.File, matcher Matcher, filePath string, invert bool, match func(m Match)) error {
 	scanner := bufio.NewScanner(io)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	lineNum := 1 
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		contain := strings.Contains(line, pattern)
+		matched := matcher.Match(line)
+		matchStart, matchEnd := matcher.findIndex(line)
 
-		if invert {
-			if !contain {
-				match(Match{
-					lineNumber: lineNum,
-					line: line,
-					pattern: pattern,
-					filePath: filePath,
-				})
-			}
-		} else {
-			if contain {
-				match(Match{
-					lineNumber: lineNum,
-					line: line,
-					pattern: pattern,
-					filePath: filePath,
-				})
-			}
+		if matched != invert {
+			match(Match{
+				lineNumber: lineNum,
+				line: line,
+				filePath: filePath,
+				matchStart: matchStart,
+				matchEnd: matchEnd,
+			})
 		}
-
 		lineNum++
 	}
 	return scanner.Err(); 
-}
-
-// TODO: remove fileNaming param
-func parseFile(filePath string, pattern string, fileNaming bool){
-	file, err := os.Open(filePath)
-	if err != nil {
-		log.Fatal(err);
-	}
-	defer file.Close();
-
-	line := 1;
-	scanner := bufio.NewScanner(file);
-
-	for scanner.Scan() {
-		index := strings.Index(scanner.Text(), pattern)
-		if index == -1 {
-			line++;
-			continue
-		}
-		
-		before := scanner.Text()[:index];
-		found  := scanner.Text()[index : index+len(pattern)]
-		other  := scanner.Text()[(index + len(pattern)):];
-		if fileNaming {
-			
-			fmt.Printf("%s%s%s:%d%s  %s%s%s%s%s\n", Green, filePath, Red, line, Reset, before, Yellow, found, Reset, other);
-		} else {
-			fmt.Printf("%d  %s%s%s%s%s\n", line, before, Yellow, found, Reset, other);
-		}
-
-		line++;
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Println("Error");
-	}
-}
-
-func parseMultiFiles(filesCount int, pattern string, printLN bool) {
-	for i := 2; i <= filesCount+1; i++  {
-		// get file path
-		parseFile(os.Args[i], pattern, printLN)
-	}
-}
-
-func findAllSubs(str, substr string) []int {
-	var indices []int;
-	for i := 0; ; {
-		idx := strings.Index(str[i:], substr)
-		if idx == -1{
-			break;
-		}
-		indices = append(indices, i+idx);
-
-		i += idx + len(substr);
-	}
-
-	return indices;
-}
-
-func handleBasicPattern(line string, pattern string, lineNum int){
-	if strings.Contains(line, pattern) {
-		return;
-	}
-
-	found = true
-
-	sample := Yellow + pattern + Reset
-	res := strings.ReplaceAll(line, pattern, sample)
-	fmt.Printf("%d  %s\n", lineNum, res);
 }
 
 // BASIC USAGE
@@ -175,6 +163,9 @@ func main(){
 	fileNameOnly  	:= flag.Bool("l", false, "Print only file name");
 	invertOut       := flag.Bool("v", false, "Invert output");
 	onlyMatchedOut  := flag.Bool("m", false, "Print only matched out");
+	regularExp 		:= flag.Bool("e", false, "Regular Expressions");
+	ignoreCase 	    := flag.Bool("i", false, "Ignore case");
+
 	
 	flag.Parse()
 
@@ -206,6 +197,12 @@ func main(){
 		fmt.Printf(options.print(x) + "\n")
 	}
 
+	matcher, err := newMatcher(pattern, *regularExp, *ignoreCase)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		os.Exit(2)
+	}
+
 	// selecting mode
 	if len(files) > 0 {
 		for _, path := range files {
@@ -216,7 +213,7 @@ func main(){
 				continue
 			}
 
-			if err := search(f, pattern, path, *invertOut, onMatch); err != nil {
+			if err := search(f, matcher, path, *invertOut, onMatch); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", path, err)
 			}
 			f.Close()
@@ -229,11 +226,11 @@ func main(){
 		} 
 		defer f.Close()
 
-		if err := search(f, pattern, *filePtr, *invertOut, onMatch); err != nil {
+		if err := search(f, matcher, *filePtr, *invertOut, onMatch); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)	
 		}
 	} else {                  // stdin
-		if err := search(os.Stdin, pattern, *filePtr, *invertOut, onMatch); err != nil {
+		if err := search(os.Stdin, matcher, *filePtr, *invertOut, onMatch); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
 	}

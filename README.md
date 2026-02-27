@@ -26,7 +26,8 @@ sgrep pattern file1.txt file2.txt
 - [*] Print filename before the line (like `grep`)
 
 ## Phase 3 — Search features
-
+- [ ] Fix regular exp. and double output
+- [ ] Fix command: sgrep <file> (loop)
 - [ ] Support regular expressions
 - [*] Flag `-v` (invert match)
 - [*] Flag `-i` (ignore case)
