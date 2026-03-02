@@ -9,9 +9,9 @@
 
 **Correct exit codes:**
 
-- [ ] `0` — match found
-- [ ] `1` — no match
-- [ ] `2` — error
+- [x] `0` — match found
+- [x] `1` — no match
+- [x] `2` — error
 
 ## Phase 2 — Input handling
 
@@ -23,18 +23,19 @@
 sgrep pattern file1.txt file2.txt
 ```
 
-- [*] Print filename before the line (like `grep`)
+- [x] Print filename before the line (like `grep`)
 
 ## Phase 3 — Search features
-- [ ] Fix regular exp. and double output
-- [ ] Fix command: sgrep <file> (loop)
-- [ ] Support regular expressions
-- [*] Flag `-v` (invert match)
-- [*] Flag `-i` (ignore case)
-- [*] Flag `-c` (count matches)
+- [x] Fix regular exp. and double output
+- [x] Fix command: sgrep <file> (loop)
+- [ ] Fix highlighting for regex matches
+- [x] Support regular expressions
+- [x] Flag `-v` (invert match)
+- [x] Flag `-i` (ignore case)
+- [ ] Flag `-c` (count matches)
 - [ ] Flag `-l` (print only file names)
-- [*] Flag `-w` (match whole word)
-- [*] Flag `-o` (print only matched part)
+- [ ] Flag `-w` (match whole word)
+- [ ] Flag `-o` (print only matched part)
 
 ## Phase 4 — Output improvements
 
