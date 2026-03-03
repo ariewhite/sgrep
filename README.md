@@ -28,7 +28,7 @@ sgrep pattern file1.txt file2.txt
 ## Phase 3 — Search features
 - [x] Fix regular exp. and double output
 - [x] Fix command: sgrep <file> (loop)
-- [ ] Fix highlighting for regex matches
+- [x] Fix highlighting for regex matches
 - [x] Support regular expressions
 - [x] Flag `-v` (invert match)
 - [x] Flag `-i` (ignore case)

@@ -15,6 +15,7 @@ const (
 	Green  = "\033[32m"
 	Yellow = "\033[33m"
 	Blue   = "\033[34m"
+	LBlue  = "\033[38;2;68;199;206m"
 )
 
 var (
@@ -24,7 +25,7 @@ var (
 
 // interface to matches
 type Matcher interface {
-	findIndex(line string) (start, end int)
+	handleMatch(line string) string
 	match(line string) bool
 }
 
@@ -32,8 +33,6 @@ type Match struct {
 	lineNumber int
 	line       string
 	filePath   string
-	matchStart int
-	matchEnd   int
 }
 
 type Options struct {
@@ -55,12 +54,9 @@ func (s *StringMatcher) match(line string) bool {
 	return strings.Contains(line, pattern)
 }
 
-func (s *StringMatcher) findIndex(line string) (int, int) {
-	index := strings.Index(line, pattern)
-	if index == -1 {
-		return -1, -1
-	}
-	return index, index + len(pattern)
+func (s *StringMatcher) handleMatch(line string) string {
+	line = strings.ReplaceAll(line, pattern, colorize(pattern, Yellow))
+	return line
 }
 
 // -------------- regex ------------------
@@ -72,12 +68,28 @@ func (s *RegexMatcher) match(line string) bool {
 	return s.re.MatchString(line)
 }
 
-func (s *RegexMatcher) findIndex(line string) (int, int) {
-	l := s.re.FindStringIndex(line)
-	if l == nil {
-		return -1, -1
+func (s *RegexMatcher) handleMatch(line string) string {
+	indexs := s.re.FindAllIndex([]byte(line), -1)
+	if indexs == nil {
+		return ""
+	} 
+
+	return test_colorize_slice(indexs, line, Yellow)
+}
+
+func test_colorize_slice(sl [][]int, line string, color string) string {
+	offset := 0
+	ofLen := len(color) + len(Reset)
+	for i := 0; i < len(sl); i++ {
+		index1 := sl[i][0] + offset
+		index2 := sl[i][1] + offset 
+		
+		
+		line = line[:index1] + color + line[index1:index2] + Reset + line[index2:]
+		offset += ofLen
 	}
-	return l[0], l[1]
+
+	return line
 }
 
 // -------------- matcher select -----------------
@@ -98,7 +110,7 @@ func newMatcher(reg bool, ignoreCase bool) (Matcher, error) {
 func (o *Options) print(m Match) string {
 	var sb strings.Builder
 	if o.showFileName {
-		sb.WriteString(colorize(m.filePath, Green) + colorize(":", Blue))
+		sb.WriteString(colorize(m.filePath, Green) + colorize(":", LBlue))
 	}
 	if o.showLineNum {
 		sb.WriteString(Green + fmt.Sprintf("%d", m.lineNumber) + Reset + ":")
@@ -113,9 +125,6 @@ func (o *Options) print(m Match) string {
 }
 
 func highlight(m Match, color string) string {
-	if m.matchStart == -1 {
-		return m.line
-	}
 	m.line = strings.ReplaceAll(m.line, pattern, colorize(pattern, color))
 	return m.line
 }
@@ -133,15 +142,13 @@ func search(io *os.File, matcher Matcher, filePath string, invert bool, match fu
 	for scanner.Scan() {
 		line := scanner.Text()
 		matched := matcher.match(line)
-		matchStart, matchEnd := matcher.findIndex(line)
+		line = matcher.handleMatch(line)
 
 		if matched != invert {
 			match(Match{
 				lineNumber: lineNum,
 				line:       line,
 				filePath:   filePath,
-				matchStart: matchStart,
-				matchEnd:   matchEnd,
 			})
 		}
 		lineNum++
