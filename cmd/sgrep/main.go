@@ -42,9 +42,6 @@ type Options struct {
 	onlyMatched  bool
 	invertMatch  bool
 	countMatch   bool
-	
-
-	colorize_slice(sl [][]int, line string, color string) string 
 }
 
 // -------------- string -------------------
