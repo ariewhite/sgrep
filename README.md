@@ -32,7 +32,10 @@ sgrep pattern file1.txt file2.txt
 - [x] Support regular expressions
 - [x] Flag `-v` (invert match)
 - [x] Flag `-i` (ignore case)
-- [ ] Flag `-c` (count matches)
+- [x] Flag `-c` (count matches)
+
+- [ ] Redesign the arch, to input - matcher - result - formatter - output
+
 - [ ] Flag `-l` (print only file names)
 - [ ] Flag `-w` (match whole word)
 - [ ] Flag `-o` (print only matched part)

@@ -20,6 +20,7 @@ const (
 
 var (
 	found = false
+	matchCount int = 0
 	pattern string
 )
 
@@ -40,6 +41,10 @@ type Options struct {
 	showFileName bool
 	onlyMatched  bool
 	invertMatch  bool
+	countMatch   bool
+	
+
+	colorize_slice(sl [][]int, line string, color string) string 
 }
 
 // -------------- string -------------------
@@ -70,22 +75,22 @@ func (s *RegexMatcher) match(line string) bool {
 
 func (s *RegexMatcher) handleMatch(line string) string {
 	indexs := s.re.FindAllIndex([]byte(line), -1)
-	if indexs == nil {
-		return ""
-	} 
-
-	return test_colorize_slice(indexs, line, Yellow)
+	return colorize_slice(indexs, line, Yellow)	
 }
 
-func test_colorize_slice(sl [][]int, line string, color string) string {
+func (o *Options) colorize_slice(sl [][]int, line string, color string) string {
 	offset := 0
 	ofLen := len(color) + len(Reset)
 	for i := 0; i < len(sl); i++ {
 		index1 := sl[i][0] + offset
 		index2 := sl[i][1] + offset 
 		
+		if o.onlyMatched {
+			line = color + line[index1:index2] + Reset
+		} else {
+			line = line[:index1] + color + line[index1:index2] + Reset + line[index2:]
+		}
 		
-		line = line[:index1] + color + line[index1:index2] + Reset + line[index2:]
 		offset += ofLen
 	}
 
@@ -145,6 +150,7 @@ func search(io *os.File, matcher Matcher, filePath string, invert bool, match fu
 		line = matcher.handleMatch(line)
 
 		if matched != invert {
+			matchCount++;
 			match(Match{
 				lineNumber: lineNum,
 				line:       line,
@@ -210,6 +216,7 @@ func main() {
 	regularExp := flag.Bool("e", false, "Regular Expressions")
 	ignoreCase := flag.Bool("i", false, "Ignore case")
 	helpOpt 	:= flag.Bool("h", false, "Show help")
+	countOpt := flag.Bool("c", false, "Show matches count")
 
 	flag.Parse()
 
@@ -235,6 +242,7 @@ func main() {
 		showFileName: flag.NArg() > 2,
 		onlyMatched:  *onlyMatchedOut,
 		invertMatch:  *invertOut,
+		countMatch:   *countOpt,
 	}
 
 	if *fileNameOnly {
@@ -244,6 +252,9 @@ func main() {
 
 	onMatch := func(x Match) {
 		found = true
+		if *countOpt {
+			return
+		}
 		fmt.Printf(options.print(x) + "\n")
 	}
 
@@ -286,6 +297,10 @@ func main() {
 		if err := search(os.Stdin, matcher, *filePtr, *invertOut, onMatch); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
+	}
+
+	if *countOpt{
+		fmt.Fprintf(os.Stdout, "%d", matchCount)
 	}
 
 	if !found {
