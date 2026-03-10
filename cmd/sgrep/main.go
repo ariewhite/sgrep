@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -21,138 +24,149 @@ const (
 var (
 	found = false
 	matchCount int = 0
-	pattern string
 )
+
+// --- OPTIONS ---
+type Options struct {
+	IgnoreCase bool
+	Regex bool
+	ShowLineNum bool
+	Invert bool
+	OnlyMatch bool
+}
+
+func ParseOptions() (Options, string, []string ) {
+	lineNum := flag.Bool("n", false, "Print line number")
+	invert := flag.Bool("v", false, "Invert output")
+	onlyMatch := flag.Bool("m", false, "Print only matched out")
+	regex := flag.Bool("e", false, "Regular Expressions")
+	ignoreCase := flag.Bool("i", false, "Ignore case")
+
+	flag.Parse()
+
+	if flag.NArg() < 1 {
+		log.Fatal("pattern not found")
+	}
+
+	pattern := flag.Arg(0)
+	files := flag.Args()[1:]
+
+	return Options{
+		IgnoreCase: *ignoreCase,
+		Regex: *regex,
+		ShowLineNum: *lineNum,
+		Invert: *invert,
+		OnlyMatch: *onlyMatch,
+	}, pattern, files
+}
+
 
 // interface to matches
 type Matcher interface {
-	handleMatch(line string) string
-	match(line string) bool
+	Match(line string) bool
+	FindAll(line string) [][]int
 }
 
-type Match struct {
-	lineNumber int
-	line       string
-	filePath   string
-}
-
-type Options struct {
-	showLineNum  bool
-	showFileName bool
-	onlyMatched  bool
-	invertMatch  bool
-	countMatch   bool
-}
-
-// -------------- string -------------------
+// --- string ---
 type StringMatcher struct {
-	ignoreCase bool
+	pattern string
 }
 
-func (s *StringMatcher) match(line string) bool {
-	if s.ignoreCase {
-		return strings.Contains(strings.ToLower(line), strings.ToLower(pattern))
+func (s *StringMatcher) Match(line string) bool {
+	return strings.Contains(line, s.pattern)
+}
+
+func (s* StringMatcher) FindAll(line string) [][]int {
+	var res [][]int
+	start := 0 
+
+	for {
+		i := strings.Index(line[start:], s.pattern)	
+		if i == -1 {
+			break
+		}
+
+		i += start;
+		res = append(res, []int{i, i+len(s.pattern)})
+		start = i + len(s.pattern)
 	}
-	return strings.Contains(line, pattern)
-}
 
-func (s *StringMatcher) handleMatch(line string) string {
-	line = strings.ReplaceAll(line, pattern, colorize(pattern, Yellow))
-	return line
+	return res;
 }
-
 // -------------- regex ------------------
 type RegexMatcher struct {
 	re      *regexp.Regexp
 }
 
-func (s *RegexMatcher) match(line string) bool {
-	return s.re.MatchString(line)
+func (s *RegexMatcher) Match(line string) bool {
+	return s.re.MatchString(line);
 }
 
-func (s *RegexMatcher) handleMatch(line string) string {
-	indexs := s.re.FindAllIndex([]byte(line), -1)
-	return colorize_slice(indexs, line, Yellow)	
-}
-
-func (o *Options) colorize_slice(sl [][]int, line string, color string) string {
-	offset := 0
-	ofLen := len(color) + len(Reset)
-	for i := 0; i < len(sl); i++ {
-		index1 := sl[i][0] + offset
-		index2 := sl[i][1] + offset 
-		
-		if o.onlyMatched {
-			line = color + line[index1:index2] + Reset
-		} else {
-			line = line[:index1] + color + line[index1:index2] + Reset + line[index2:]
-		}
-		
-		offset += ofLen
-	}
-
-	return line
+func (s *RegexMatcher) FindAll(line string) [][]int {
+	return s.re.FindAllStringIndex(line, -1);
 }
 
 // -------------- matcher select -----------------
-func newMatcher(reg bool, ignoreCase bool) (Matcher, error) {
-	if reg {
-		if ignoreCase {
-			pattern = "(?i)" + pattern
-		}
-		re, err := regexp.Compile(pattern)
+func newMatcher(p string, opts Options) (Matcher, error) {
+	if opts.Regex {
+		re, err := regexp.Compile(p)
 		if err != nil {
-			return nil, fmt.Errorf("Invalid regex %w", err)
+			return nil, err
 		}
-		return &RegexMatcher{re: re}, nil
+		return &RegexMatcher{re}, nil
 	}
-	return &StringMatcher{ignoreCase: ignoreCase}, nil
+	return &StringMatcher{p}, nil
 }
 
-func (o *Options) print(m Match) string {
-	var sb strings.Builder
-	if o.showFileName {
-		sb.WriteString(colorize(m.filePath, Green) + colorize(":", LBlue))
+func print(line string, num int, matcher Matcher, opts Options, file string) {
+	if opts.ShowLineNum {
+		fmt.Printf("%s%s", colorize(strconv.Itoa(num), Green), colorize(":", LBlue))
 	}
-	if o.showLineNum {
-		sb.WriteString(Green + fmt.Sprintf("%d", m.lineNumber) + Reset + ":")
-	}
-	if o.onlyMatched {
-		sb.WriteString(colorize(pattern, Yellow))
+
+	indexs := matcher.FindAll(line)
+	if opts.OnlyMatch {
+		for _, idx := range indexs {
+			// sb.WriteString(fmt.Sprintf(line[idx[0]:idx[1]]))
+			fmt.Printf("%s\n", colorize(line[idx[0]:idx[1]], Yellow))
+		}
 	} else {
-		sb.WriteString(highlight(m, Yellow))
+		offset := 0
+		ofLen := len(Yellow) + len(Reset)
+		for _, idx := range indexs {
+			idx[0] += offset;
+			idx[1] += offset;
+
+			line = line[:idx[0]] + Yellow + line[idx[0]:idx[1]] + Reset + line[idx[1]:]
+
+			offset += ofLen
+		}
+	    fmt.Printf("%s\n", line)
 	}
-
-	return sb.String()
 }
 
-func highlight(m Match, color string) string {
-	m.line = strings.ReplaceAll(m.line, pattern, colorize(pattern, color))
-	return m.line
-}
+// func highlight(m Match, color string) string {
+// 	m.line = strings.ReplaceAll(m.line, pattern, colorize(pattern, color))
+// 	return m.line
+// }
 
 func colorize(original string, color string) string {
 	temp := color + original + Reset;
 	return temp
 }
 
-func search(io *os.File, matcher Matcher, filePath string, invert bool, match func(m Match)) error {
+func search(io io.Reader, matcher Matcher, opts Options, file string) error {
 	scanner := bufio.NewScanner(io)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	lineNum := 1
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		matched := matcher.match(line)
-		line = matcher.handleMatch(line)
 
-		if matched != invert {
+		matched := matcher.Match(line)
+
+		if matched != opts.Invert {
 			matchCount++;
-			match(Match{
-				lineNumber: lineNum,
-				line:       line,
-				filePath:   filePath,
-			})
+			print(line, lineNum, matcher, opts, file)
 		}
 		lineNum++
 	}
@@ -204,104 +218,37 @@ func printHelp() {
 // sgrep <pattern> file1.txt file2.txt
 // <stdin> | sgrep <pattern>
 func main() {
-	// check for single file mode
-	filePtr := flag.String("f", " ", "Parse file instead stdin")
-	lineNumberOut := flag.Bool("n", false, "Print line number")
-	fileNameOnly := flag.Bool("l", false, "Print only file name")
-	invertOut := flag.Bool("v", false, "Invert output")
-	onlyMatchedOut := flag.Bool("m", false, "Print only matched out")
-	regularExp := flag.Bool("e", false, "Regular Expressions")
-	ignoreCase := flag.Bool("i", false, "Ignore case")
+	opts, pattern, files := ParseOptions()
 	helpOpt 	:= flag.Bool("h", false, "Show help")
-	countOpt := flag.Bool("c", false, "Show matches count")
+	// countOpt := flag.Bool("c", false, "Show matches count")
 
 	flag.Parse()
-
+	
 	// check for help
 	if *helpOpt {
 		printHelp()
 		os.Exit(0)
 	}
 
-	// check for pattern exist
-	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "no pattern")
-		os.Exit(2)
-	}
-	// get pattern
-	pattern = flag.Arg(0)
-	files := flag.Args()[1:]
-
-	fmt.Printf("pattern: %s\nfile: %s\n", pattern, *filePtr)
-
-	options := &Options{
-		showLineNum:  *lineNumberOut,
-		showFileName: flag.NArg() > 2,
-		onlyMatched:  *onlyMatchedOut,
-		invertMatch:  *invertOut,
-		countMatch:   *countOpt,
+	matcher, err := newMatcher(pattern, opts)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if *fileNameOnly {
-		fmt.Fprintf(os.Stderr, "add feature in future\n")
+	if len(files) == 0 {
+		search(os.Stdin, matcher, opts, "")
 		os.Exit(0)
 	}
 
-	onMatch := func(x Match) {
-		found = true
-		if *countOpt {
-			return
-		}
-		fmt.Printf(options.print(x) + "\n")
-	}
-
-	matcher, err := newMatcher(*regularExp, *ignoreCase)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		os.Exit(2)
-	}
-
-	// selecting mode
-	if len(files) > 0 {
-		for _, path := range files {
-			// open file
-			f, err := os.Open(path)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", path, err)
-				continue
-			}
-
-			if err := search(f, matcher, path, *invertOut, onMatch); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %s: %v\n", path, err)
-			}
-			f.Close()
-		}
-	} else if *filePtr != "" { // -f singe file mode
-		f, err := os.Open(*filePtr)
+	for _, f := range files {
+		file, err := os.Open(f)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", err, *filePtr)
-			os.Exit(2)
+			log.Println(err)
+			continue
 		}
-		defer f.Close()
 
-		if err := search(f, matcher, *filePtr, *invertOut, onMatch); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		}
-	} else if len(files) == 0 {
-		printUsage()
-		os.Exit(1)
-	} else { // stdin
-		if err := search(os.Stdin, matcher, *filePtr, *invertOut, onMatch); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		}
-	}
-
-	if *countOpt{
-		fmt.Fprintf(os.Stdout, "%d", matchCount)
-	}
-
-	if !found {
-		os.Exit(1)
+		search(file, matcher, opts, f)
+		file.Close()
 	}
 
 	os.Exit(0)

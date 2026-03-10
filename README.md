@@ -34,7 +34,7 @@ sgrep pattern file1.txt file2.txt
 - [x] Flag `-i` (ignore case)
 - [x] Flag `-c` (count matches)
 
-- [ ] Redesign the arch, to input - matcher - result - formatter - output
+- [x] Redesign the arch, to cli - options - matcher - search - formatter - output
 
 - [ ] Flag `-l` (print only file names)
 - [ ] Flag `-w` (match whole word)
