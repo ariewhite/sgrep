@@ -19,11 +19,13 @@ const (
 	Yellow = "\033[33m"
 	Blue   = "\033[34m"
 	LBlue  = "\033[38;2;68;199;206m"
+	Pink   = "\033[38;2;200;100;200m"
 )
 
 var (
 	found = false
 	matchCount int = 0
+	fileMatchCounter map[string]int
 )
 
 // --- OPTIONS ---
@@ -33,6 +35,9 @@ type Options struct {
 	ShowLineNum bool
 	Invert bool
 	OnlyMatch bool
+	Count bool
+	FilesNames bool
+	FileNamesOnlyM bool
 }
 
 func ParseOptions() (Options, string, []string ) {
@@ -41,6 +46,9 @@ func ParseOptions() (Options, string, []string ) {
 	onlyMatch := flag.Bool("m", false, "Print only matched out")
 	regex := flag.Bool("e", false, "Regular Expressions")
 	ignoreCase := flag.Bool("i", false, "Ignore case")
+	countOpt    := flag.Bool("c", false, "Show matches count")
+	fileNames := flag.Bool("f", false, "Print files names")
+	onlyFileNameMatch := flag.Bool("l", false, "Print onli files names with matches")
 
 	flag.Parse()
 
@@ -57,6 +65,9 @@ func ParseOptions() (Options, string, []string ) {
 		ShowLineNum: *lineNum,
 		Invert: *invert,
 		OnlyMatch: *onlyMatch,
+		Count: *countOpt,
+		FilesNames: *fileNames,
+		FileNamesOnlyM: *onlyFileNameMatch,
 	}, pattern, files
 }
 
@@ -119,11 +130,21 @@ func newMatcher(p string, opts Options) (Matcher, error) {
 }
 
 func print(line string, num int, matcher Matcher, opts Options, file string) {
+
+	if opts.FilesNames {
+		fmt.Printf("%s%s", colorize(file, Pink), colorize(":", LBlue))
+	}
 	if opts.ShowLineNum {
 		fmt.Printf("%s%s", colorize(strconv.Itoa(num), Green), colorize(":", LBlue))
 	}
 
-	indexs := matcher.FindAll(line)
+	tempLine := line
+	if opts.IgnoreCase {
+		tempLine = strings.ToLower(line)
+	}
+
+	indexs := matcher.FindAll(tempLine)
+
 	if opts.OnlyMatch {
 		for _, idx := range indexs {
 			// sb.WriteString(fmt.Sprintf(line[idx[0]:idx[1]]))
@@ -132,6 +153,7 @@ func print(line string, num int, matcher Matcher, opts Options, file string) {
 	} else {
 		offset := 0
 		ofLen := len(Yellow) + len(Reset)
+
 		for _, idx := range indexs {
 			idx[0] += offset;
 			idx[1] += offset;
@@ -143,11 +165,6 @@ func print(line string, num int, matcher Matcher, opts Options, file string) {
 	    fmt.Printf("%s\n", line)
 	}
 }
-
-// func highlight(m Match, color string) string {
-// 	m.line = strings.ReplaceAll(m.line, pattern, colorize(pattern, color))
-// 	return m.line
-// }
 
 func colorize(original string, color string) string {
 	temp := color + original + Reset;
@@ -161,17 +178,26 @@ func search(io io.Reader, matcher Matcher, opts Options, file string) error {
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineTemp := line
+		if opts.IgnoreCase {
+			lineTemp = strings.ToLower(line)
+		}
 
-		matched := matcher.Match(line)
+		matched := matcher.Match(lineTemp)
 
 		if matched != opts.Invert {
 			matchCount++;
-			print(line, lineNum, matcher, opts, file)
+			if !opts.FileNamesOnlyM {
+				print(line, lineNum, matcher, opts, file)
+			} else {
+				fileMatchCounter[file]++
+			}
 		}
 		lineNum++
 	}
 	return scanner.Err()
 }
+
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: sgrep <options> <pattern>\nTry: sgrep -h for more help\n")
@@ -182,14 +208,16 @@ func printHelp() {
 	sgrep [OPTIONS] <pattern>
 
 	Description:
-	Search for PATTERN in input (stdin by default or file via -f).
+	Search for PATTERN in input (stdin by default or file).
 
 	Options:
-	-f=<path/to/file> [Parse file instead of stdin]
-
 	-n [Print line number]
 
 	-l [Print only file name (if match found)]
+
+	-L [Print only file name with out matches]
+
+	-f [Print file names]
 
 	-v [Invert match (select non-matching lines)]
 
@@ -206,7 +234,7 @@ func printHelp() {
 	cat log2.txt | sgrep -n -i error 
 
 	Examples with file:
-	sgrep -i -e "^\d[A-Z]" -f=input.txt
+	sgrep -i -e "^\d[A-Z]" input.txt
 
 	Multifiles: 
 	sgrep something log1.txt log2.txt
@@ -220,7 +248,6 @@ func printHelp() {
 func main() {
 	opts, pattern, files := ParseOptions()
 	helpOpt 	:= flag.Bool("h", false, "Show help")
-	// countOpt := flag.Bool("c", false, "Show matches count")
 
 	flag.Parse()
 	
@@ -235,20 +262,46 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if len(files) == 0 {
-		search(os.Stdin, matcher, opts, "")
-		os.Exit(0)
-	}
+	if opts.Count {
+		// count logic
+	} else if opts.FileNamesOnlyM {
+		if len(files) == 0 {
+			log.Fatal("-l required more than 0 files")
+			os.Exit(2)
+		} 
+		
+		for _, f := range files {
+			file, err := os.Open(f)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
 
-	for _, f := range files {
-		file, err := os.Open(f)
-		if err != nil {
-			log.Println(err)
-			continue
+			search(file, matcher, opts, f)
+			file.Close()
 		}
 
-		search(file, matcher, opts, f)
-		file.Close()
+		for f,s := range fileMatchCounter {
+			fmt.Printf("%s: %d\n", f, s)
+		}
+	} else {
+
+		if len(files) == 0 {
+			search(os.Stdin, matcher, opts, "")
+			os.Exit(0)
+		}
+
+		for _, f := range files {
+			file, err := os.Open(f)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+
+			search(file, matcher, opts, f)
+			file.Close()
+		}
+
 	}
 
 	os.Exit(0)
